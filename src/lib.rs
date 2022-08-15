@@ -6,6 +6,12 @@
 
 use std::ptr::NonNull;
 
+/// A type-erased version of [`Box`], which only uses dynamic dispatch for the [`Drop`] impl.
+/// This type is essentially a wide pointer (16 bytes) -- 1 pointer for the data,
+/// and 1 pointer for the drop handling code.
+///
+/// If you never intending on dropping this type, [`LeakyBox`] is a more efficient alternative,
+/// as it is only 1 pointer wide (8 bytes).
 pub struct ErasedBox {
     ptr: NonNull<u8>,
     drop: fn(*mut u8),
@@ -60,6 +66,13 @@ impl ErasedBox {
     }
 }
 
+/// A type-erased version of [`Box`], which uses no dynamic dispatch and is 1 pointer wide.
+///
+/// If this type is allowed to go out of scope, the value will be forgotten and the allocation will be leaked.
+/// To avoid leaking, this type should be [downcasted](#method.downcast_unchecked) to a concrete type
+/// before it is allowed to go out of scope.
+///
+/// If you need a droppable type-erased box, consider using [`ErasedBox`].
 pub struct LeakyBox {
     ptr: NonNull<u8>,
 }
