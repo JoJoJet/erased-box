@@ -101,4 +101,12 @@ impl LeakyBox {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assert_sizes() {
+        assert_eq!(std::mem::size_of::<ErasedBox>(), 16);
+        assert_eq!(std::mem::size_of::<LeakyBox>(), 8);
+    }
+}
