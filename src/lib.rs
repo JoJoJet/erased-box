@@ -17,32 +17,23 @@ pub struct ErasedBox {
     drop: fn(*mut u8),
 }
 
-impl<T: 'static> From<Box<T>> for ErasedBox {
-    fn from(boxed: Box<T>) -> Self {
-        let ptr = Box::into_raw(boxed) as *mut u8;
+impl ErasedBox {
+    pub const fn from_box<T: 'static>(boxed: Box<T>) -> Self {
+        let ptr = &*boxed as *const T as *mut u8;
+        std::mem::forget(boxed);
         Self {
             // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
             ptr: unsafe { NonNull::new_unchecked(ptr) },
             drop: |ptr| {
-                // SAFETY: We can call `Box::from_raw`, since `ptr` was originally obtained from `Box<T>::into_raw`.
+                // SAFETY: We can call `Box::from_raw`, since `ptr` was originally obtained from `Box<T>`.
                 // This closure will only get called in the `Drop` impl, which gets called at most once.
                 let boxed = unsafe { Box::from_raw(ptr as *mut T) };
                 std::mem::drop(boxed);
             },
         }
     }
-}
-
-impl Drop for ErasedBox {
-    #[inline]
-    fn drop(&mut self) {
-        (self.drop)(self.ptr.as_ptr());
-    }
-}
-
-impl ErasedBox {
     pub fn new<T: 'static>(val: T) -> Self {
-        Self::from(Box::new(val))
+        Self::from_box(Box::new(val))
     }
 
     /// # Safety
@@ -50,7 +41,7 @@ impl ErasedBox {
     pub unsafe fn downcast<T: 'static>(self) -> Box<T> {
         // Make sure the drop handler doesn't get called at the end of this fn.
         let ptr = ManuallyDrop::new(self).ptr.as_ptr();
-        // SAFETY: `ptr` was originally obtained from `Box::into_raw`,
+        // SAFETY: `ptr` was originally obtained from `Box`,
         // and the caller has promised that the type matches.
         Box::from_raw(ptr as *mut T)
     }
@@ -68,6 +59,13 @@ impl ErasedBox {
     }
 }
 
+impl Drop for ErasedBox {
+    #[inline]
+    fn drop(&mut self) {
+        (self.drop)(self.ptr.as_ptr());
+    }
+}
+
 /// A type-erased version of [`Box`], which uses no dynamic dispatch and is 1 pointer wide.
 ///
 /// If this type is allowed to go out of scope, the value will be forgotten and the allocation will be leaked.
@@ -79,25 +77,22 @@ pub struct LeakyBox {
     ptr: NonNull<u8>,
 }
 
-impl<T: 'static> From<Box<T>> for LeakyBox {
-    fn from(boxed: Box<T>) -> Self {
-        let ptr = Box::into_raw(boxed) as *mut u8;
-        Self {
-            // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-        }
-    }
-}
-
 impl LeakyBox {
+    pub const fn from_box<T: 'static>(boxed: Box<T>) -> Self {
+        let ptr = &*boxed as *const T as *mut u8;
+        std::mem::forget(boxed);
+        // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
+        let ptr = unsafe { NonNull::new_unchecked(ptr) };
+        Self { ptr }
+    }
     pub fn new<T: 'static>(val: T) -> Self {
-        Self::from(Box::new(val))
+        Self::from_box(Box::new(val))
     }
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
     pub unsafe fn downcast<T: 'static>(self) -> Box<T> {
-        // SAFETY: `self.ptr` was originally obtained from `Box::into_raw`,
+        // SAFETY: `self.ptr` was originally obtained from `Box`,
         // and the caller has promised that the type matches.
         Box::from_raw(self.ptr.as_ptr() as *mut T)
     }
