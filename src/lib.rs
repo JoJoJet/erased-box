@@ -4,7 +4,7 @@
 //!
 //! If you want safe, fallible type erasure, just use `Box<dyn Any>` from `std`.
 
-use std::ptr::NonNull;
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 /// A type-erased version of [`Box`], which only uses dynamic dispatch for the [`Drop`] impl.
 /// This type is essentially a wide pointer (16 bytes) -- 1 pointer for the data,
@@ -48,9 +48,11 @@ impl ErasedBox {
     /// # Safety
     /// This instance must have been created from a value of type `T`.
     pub unsafe fn downcast_unchecked<T: 'static>(self) -> Box<T> {
-        // SAFETY: `self.ptr` was originally obtained from `Box::into_raw`,
+        // Make sure the drop handler doesn't get called at the end of this fn.
+        let ptr = ManuallyDrop::new(self).ptr.as_ptr();
+        // SAFETY: `ptr` was originally obtained from `Box::into_raw`,
         // and the caller has promised that the type matches.
-        Box::from_raw(self.ptr.as_ptr() as *mut T)
+        Box::from_raw(ptr as *mut T)
     }
 
     /// # Safety
