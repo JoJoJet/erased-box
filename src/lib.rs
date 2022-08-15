@@ -47,7 +47,7 @@ impl ErasedBox {
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_unchecked<T: 'static>(self) -> Box<T> {
+    pub unsafe fn downcast<T: 'static>(self) -> Box<T> {
         // Make sure the drop handler doesn't get called at the end of this fn.
         let ptr = ManuallyDrop::new(self).ptr.as_ptr();
         // SAFETY: `ptr` was originally obtained from `Box::into_raw`,
@@ -57,13 +57,13 @@ impl ErasedBox {
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_ref_unchecked<T: 'static>(&self) -> &T {
+    pub unsafe fn downcast_ref<T: 'static>(&self) -> &T {
         &*(self.ptr.as_ptr() as *mut T)
     }
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_mut_unchecked<T: 'static>(&mut self) -> &mut T {
+    pub unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut T {
         &mut *(self.ptr.as_ptr() as *mut T)
     }
 }
@@ -71,7 +71,7 @@ impl ErasedBox {
 /// A type-erased version of [`Box`], which uses no dynamic dispatch and is 1 pointer wide.
 ///
 /// If this type is allowed to go out of scope, the value will be forgotten and the allocation will be leaked.
-/// To avoid leaking, this type should be [downcasted](#method.downcast_unchecked) to a concrete type
+/// To avoid leaking, this type should be [downcasted](#method.downcast) to a concrete type
 /// before it is allowed to go out of scope.
 ///
 /// If you need a droppable type-erased box, consider using [`ErasedBox`].
@@ -96,7 +96,7 @@ impl LeakyBox {
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_unchecked<T: 'static>(self) -> Box<T> {
+    pub unsafe fn downcast<T: 'static>(self) -> Box<T> {
         // SAFETY: `self.ptr` was originally obtained from `Box::into_raw`,
         // and the caller has promised that the type matches.
         Box::from_raw(self.ptr.as_ptr() as *mut T)
@@ -104,13 +104,13 @@ impl LeakyBox {
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_ref_unchecked<T: 'static>(&self) -> &T {
+    pub unsafe fn downcast_ref<T: 'static>(&self) -> &T {
         &*(self.ptr.as_ptr() as *mut T)
     }
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
-    pub unsafe fn downcast_mut_unchecked<T: 'static>(&mut self) -> &mut T {
+    pub unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut T {
         &mut *(self.ptr.as_ptr() as *mut T)
     }
 }
