@@ -1,3 +1,9 @@
+//! Defines a set of primitives which make it easier to write robust unsafe code
+//! that deals with type-erased values. This crate is only useful in situations
+//! where the type can be determined from context -- type information is not stored.
+//!
+//! If you want safe, fallible type erasure, just use `Box<dyn Any>` from `std`.
+
 use std::ptr::NonNull;
 
 pub struct ErasedBox {
