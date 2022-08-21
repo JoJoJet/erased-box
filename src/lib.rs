@@ -14,7 +14,10 @@ use std::{mem::ManuallyDrop, ptr::NonNull};
 /// as it is only 1 pointer wide (8 bytes).
 pub struct ErasedBox {
     ptr: NonNull<u8>,
-    drop: fn(*mut u8),
+    /// SAFETY: This fn pointer must be called at most one time as long as it (or its copies) lives.
+    /// The passed pointer must have been obtained from a `Box<T>`, where `T` matches
+    /// the type argument used in `Self::from_box` or `Self::new`.
+    drop: unsafe fn(*mut u8),
 }
 
 impl ErasedBox {
@@ -24,10 +27,8 @@ impl ErasedBox {
         Self {
             // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
             ptr: unsafe { NonNull::new_unchecked(ptr) },
-            drop: |ptr| {
-                // SAFETY: We can call `Box::from_raw`, since `ptr` was originally obtained from `Box<T>`.
-                // This closure will only get called in the `Drop` impl, which gets called at most once.
-                let boxed = unsafe { Box::from_raw(ptr as *mut T) };
+            drop: |ptr| unsafe {
+                let boxed = Box::from_raw(ptr as *mut T);
                 std::mem::drop(boxed);
             },
         }
@@ -62,7 +63,9 @@ impl ErasedBox {
 impl Drop for ErasedBox {
     #[inline]
     fn drop(&mut self) {
-        (self.drop)(self.ptr.as_ptr());
+        // SAFETY: This is the only place the `self.drop` fn pointer gets called,
+        // and this function will never again be called after the initial time.
+        unsafe { (self.drop)(self.ptr.as_ptr()) };
     }
 }
 
