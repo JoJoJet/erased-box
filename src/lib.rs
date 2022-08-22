@@ -10,8 +10,11 @@ use std::{mem::ManuallyDrop, ptr::NonNull};
 /// This type is essentially a wide pointer (16 bytes) -- 1 pointer for the data,
 /// and 1 pointer for the drop handling code.
 ///
-/// If you never intending on dropping this type, [`LeakyBox`] is a more efficient alternative,
-/// as it is only 1 pointer wide (8 bytes).
+/// If you do not need to reuse allocations, consider using [`SlimBox`],
+/// which is only 1 pointer wide (8 bytes).
+///
+/// If you never intend on dropping this type, [`LeakyBox`] does not use dynamic dispatch,
+/// is only 1 pointer wide, and allows reusing allocations (converting to/from `Box<>`).
 pub struct ErasedBox {
     /// INVARIANT: This field contains values of type `T`, where `T` corresponds to the type argument
     /// used with `Self::from_box` or `Self::new`. `T` is unknown at runtime.
@@ -79,6 +82,81 @@ impl From<ErasedBox> for LeakyBox {
     }
 }
 
+/// A type-erased version of [`Box`], which only uses dynamic dispatch for the [`Drop`] impl
+/// and is only 1 pointer wide (8 bytes).
+///
+/// If you need to reuse allocations, consider using [`ErasedBox`]. This type allows converting
+/// to/from `Box<>`, but it is 2 pointers wide (8 bytes).
+///
+/// If you never intend on dropping this type, [`LeakyBox`] does not have any `Drop`-associated overhead
+/// and is only 1 pointer wide.
+pub struct SlimBox {
+    /// This points to values of type `SlimBoxImpl<T>`, for an unknown T.
+    inner: ManuallyDrop<LeakyBox>,
+}
+
+#[repr(C)]
+struct SlimBoxImpl<T> {
+    /// SAFETY: The passed `LeakyBox` must point to the `SlimBoxImpl` instance that contains this fn pointer.
+    drop: unsafe fn(LeakyBox),
+    val: T,
+}
+
+impl SlimBox {
+    pub fn new<T: 'static>(val: T) -> Self {
+        let inner = SlimBoxImpl {
+            val,
+            drop: |inner| unsafe {
+                // Downcast the type-erased value back to its concrete type, then drop it.
+                std::mem::drop(inner.downcast::<SlimBoxImpl<T>>());
+            },
+        };
+        Self {
+            inner: ManuallyDrop::new(LeakyBox::new(inner)),
+        }
+    }
+
+    /// # Safety
+    /// This instance must have been created from a value of type `T`.
+    pub unsafe fn downcast<T: 'static>(mut self) -> T {
+        // SAFETY: `self` will not get dropped, so it's okay to leave `self.inner` uninitialized.
+        let inner = ManuallyDrop::take(&mut self.inner);
+        std::mem::forget(self);
+        let SlimBoxImpl::<T> { val, .. } = *inner.downcast();
+        val
+    }
+
+    /// # Safety
+    /// This instance must have been created from a value of type `T`.
+    pub unsafe fn downcast_ref<T: 'static>(&self) -> &T {
+        let SlimBoxImpl::<T> { val, .. } = self.inner.downcast_ref();
+        val
+    }
+
+    /// # Safety
+    /// This instance must have been created from a value of type `T`.
+    pub unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut T {
+        let SlimBoxImpl::<T> { val, .. } = self.inner.downcast_mut();
+        val
+    }
+}
+
+impl Drop for SlimBox {
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: The compiler will guarantee that nothing can observe `self` after this fn returns,
+        // so it is okay to leave `self.inner` in an uninitialized state.
+        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
+        // SAFETY: `inner` points to an instance of `SlimBoxImpl<T>`, for an unknown T.
+        // Since all `SlimBoxImpl` monomorphizations are `repr(C)`, that means a reference to
+        // a `SlimBoxImpl` can be cast to a reference to its first field.
+        // Its first field is a fn pointer to the drop code, so let's downcast to that type.
+        let drop: unsafe fn(LeakyBox) = unsafe { *inner.downcast_ref() };
+        // SAFETY: The `drop` fn pointer expects to be passed the `SlimBoxImpl` that contains it, which we do.
+        unsafe { drop(inner) };
+    }
+}
+
 /// A type-erased version of [`Box`], which uses no dynamic dispatch and is 1 pointer wide.
 ///
 /// If this type is allowed to go out of scope, the value will be forgotten and the allocation will be leaked.
@@ -138,6 +216,7 @@ mod tests {
     #[test]
     fn assert_sizes() {
         assert_eq!(std::mem::size_of::<ErasedBox>(), 16);
+        assert_eq!(std::mem::size_of::<SlimBox>(), 8);
         assert_eq!(std::mem::size_of::<LeakyBox>(), 8);
     }
 }
