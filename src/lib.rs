@@ -24,7 +24,7 @@ pub struct ErasedBox {
 }
 
 impl ErasedBox {
-    pub const fn from_box<T: 'static>(boxed: Box<T>) -> Self {
+    pub fn from_box<T: 'static>(boxed: Box<T>) -> Self {
         Self {
             inner: ManuallyDrop::new(LeakyBox::from_box(boxed)),
             drop: |inner| unsafe {
@@ -169,9 +169,9 @@ pub struct LeakyBox {
 }
 
 impl LeakyBox {
-    pub const fn from_box<T: 'static>(boxed: Box<T>) -> Self {
-        let ptr = &*boxed as *const T as *mut u8;
-        std::mem::forget(boxed);
+    pub fn from_box<T: 'static>(boxed: Box<T>) -> Self {
+        let mut boxed = ManuallyDrop::new(boxed);
+        let ptr = &mut **boxed as *mut T as *mut u8;
         // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
         Self { ptr }
