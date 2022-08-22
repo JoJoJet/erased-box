@@ -123,6 +123,14 @@ impl LeakyBox {
     }
 }
 
+impl Drop for LeakyBox {
+    fn drop(&mut self) {
+        // No-op drop impl for future-proofing.
+        // We'll never be able to run the destructor on the wrapped type,
+        // but we may be able to clean up the allocation someday.
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
