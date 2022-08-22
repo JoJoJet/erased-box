@@ -13,23 +13,21 @@ use std::{mem::ManuallyDrop, ptr::NonNull};
 /// If you never intending on dropping this type, [`LeakyBox`] is a more efficient alternative,
 /// as it is only 1 pointer wide (8 bytes).
 pub struct ErasedBox {
-    ptr: NonNull<u8>,
-    /// SAFETY: This fn pointer must be called at most one time as long as it (or its copies) lives.
-    /// The passed pointer must have been obtained from a `Box<T>`, where `T` matches
-    /// the type argument used in `Self::from_box` or `Self::new`.
-    drop: unsafe fn(*mut u8),
+    /// INVARIANT: This field contains values of type `T`, where `T` corresponds to the type argument
+    /// used with `Self::from_box` or `Self::new`. `T` is unknown at runtime.
+    inner: ManuallyDrop<LeakyBox>,
+    /// SAFETY: The `LeakyBox` passed to this fn pointer must be the one contained in `self.inner`.
+    drop: unsafe fn(LeakyBox),
 }
 
 impl ErasedBox {
     pub const fn from_box<T: 'static>(boxed: Box<T>) -> Self {
-        let ptr = &*boxed as *const T as *mut u8;
-        std::mem::forget(boxed);
         Self {
-            // SAFETY: `ptr` was obtained from a `Box`, so it is guaranteed to be non-null.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-            drop: |ptr| unsafe {
-                let boxed = Box::from_raw(ptr as *mut T);
-                std::mem::drop(boxed);
+            inner: ManuallyDrop::new(LeakyBox::from_box(boxed)),
+            drop: |inner| unsafe {
+                // SAFETY: We can confidently downcast `inner` to type `T`,
+                // since we just created it from a value of type `T`.
+                std::mem::drop(inner.downcast::<T>());
             },
         }
     }
@@ -40,32 +38,44 @@ impl ErasedBox {
     /// # Safety
     /// This instance must have been created from a value of type `T`.
     pub unsafe fn downcast<T: 'static>(self) -> Box<T> {
-        // Make sure the drop handler doesn't get called at the end of this fn.
-        let ptr = ManuallyDrop::new(self).ptr.as_ptr();
-        // SAFETY: `ptr` was originally obtained from `Box`,
-        // and the caller has promised that the type matches.
-        Box::from_raw(ptr as *mut T)
+        // SAFETY: The caller has promised that the invariants of `LeakyBox::downcast` are upheld.
+        LeakyBox::from(self).downcast()
     }
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
     pub unsafe fn downcast_ref<T: 'static>(&self) -> &T {
-        &*(self.ptr.as_ptr() as *mut T)
+        // SAFETY: The caller has promised that the invariants of `LeakyBox::downcast_ref` are upheld.
+        self.inner.downcast_ref()
     }
 
     /// # Safety
     /// This instance must have been created from a value of type `T`.
     pub unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut T {
-        &mut *(self.ptr.as_ptr() as *mut T)
+        // SAFETY: The caller has promised that the invariants of `LeakyBox::downcast_mut` are upheld.
+        self.inner.downcast_mut()
     }
 }
 
 impl Drop for ErasedBox {
     #[inline]
     fn drop(&mut self) {
-        // SAFETY: This is the only place the `self.drop` fn pointer gets called,
-        // and this function will never again be called after the initial time.
-        unsafe { (self.drop)(self.ptr.as_ptr()) };
+        // Move the `LeakyBox` out of this instance.
+        // SAFETY: The compiler will prevent `self` from ever being used again,
+        // so it's okay to leave the ManuallyDrop field in an invalid state.
+        let inner = unsafe { ManuallyDrop::take(&mut self.inner) };
+        // SAFETY: `inner` was obtained from the same instance of `ErasedBox` as the drop fn pointer.
+        unsafe { (self.drop)(inner) };
+    }
+}
+
+impl From<ErasedBox> for LeakyBox {
+    #[inline]
+    fn from(boxed: ErasedBox) -> Self {
+        // Make sure the `ErasedBox` doesn't have its destructor called.
+        let mut boxed = ManuallyDrop::new(boxed);
+        // SAFETY: `boxed` will go out of scope after this call, and can never be used again.
+        unsafe { ManuallyDrop::take(&mut boxed.inner) }
     }
 }
 
