@@ -199,6 +199,31 @@ impl LeakyBox {
     pub unsafe fn downcast_mut<T: 'static>(&mut self) -> &mut T {
         &mut *(self.ptr.as_ptr() as *mut T)
     }
+
+    /// Bundles this pointer with a destructor for a value of specified type.
+    /// This method is nearly free to call, although the pointer returned is double-wide (16 bytes).
+    /// # Examples
+    /// ```
+    /// # use erased_box::{LeakyBox, ErasedBox};
+    /// #
+    /// # let erased = LeakyBox::new(vec!["Woof".to_owned()]);
+    /// # let _drop = unsafe { drop_as_vec::<String>(erased) };
+    /// #
+    /// /// Safety: The passed value must be of type `Vec<T>`.
+    /// unsafe fn drop_as_vec<T: 'static>(boxed: LeakyBox) -> ErasedBox {
+    ///     // We've recieved a type-erased value,
+    ///     // but based on an invariant we know its concrete type is `Vec<T>`.
+    ///     // We don't want to expose this publicly, but we would like its destructor
+    ///     // to get called eventually, so we should bundle it with a drop fn.
+    ///     boxed.with_drop::<Vec<T>>()
+    /// }
+    /// ```
+    /// # Safety
+    /// This instance must have been created from a value of type `T`.
+    #[must_use = "if you wish to drop this value right away, try `std::mem::drop(self.downcast::<T>())`"]
+    pub unsafe fn with_drop<T: 'static>(self) -> ErasedBox {
+        ErasedBox::from_box(self.downcast::<T>())
+    }
 }
 
 impl Drop for LeakyBox {
