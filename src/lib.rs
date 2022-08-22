@@ -219,4 +219,55 @@ mod tests {
         assert_eq!(std::mem::size_of::<SlimBox>(), 8);
         assert_eq!(std::mem::size_of::<LeakyBox>(), 8);
     }
+
+    // Tests for the drop impls.
+
+    struct DropBomb;
+
+    impl Drop for DropBomb {
+        fn drop(&mut self) {
+            panic!("drop");
+        }
+    }
+
+    #[test]
+    #[should_panic = "drop"]
+    fn erased_drop_bomb() {
+        let bomb = ErasedBox::new(DropBomb);
+        std::mem::drop(bomb);
+    }
+
+    #[test]
+    #[should_panic = "drop"]
+    fn slim_drop_bomb() {
+        let bomb = SlimBox::new(DropBomb);
+        std::mem::drop(bomb);
+    }
+
+    #[test]
+    fn leaky_drop_bomb() {
+        let bomb = LeakyBox::new(DropBomb);
+        // The destructor for `DropBomb` should not be run here.
+        std::mem::drop(bomb);
+    }
+
+    #[test]
+    fn erased_drop() {
+        let mut val = ErasedBox::new("Hello".to_owned());
+        unsafe {
+            val.downcast_mut::<String>().push_str(", World!");
+        }
+        // Drop it so miri can check for UB.
+        std::mem::drop(val);
+    }
+
+    #[test]
+    fn slim_drop() {
+        let mut val = SlimBox::new("Hello".to_owned());
+        unsafe {
+            val.downcast_mut::<String>().push_str(", World!");
+        }
+        // Drop it so miri can check for UB.
+        std::mem::drop(val);
+    }
 }
